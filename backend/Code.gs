@@ -1,4 +1,8 @@
-// Phase 1: plumbing only. No auth yet (added in Phase 2).
+// Phase 2: token verification + email allowlist added.
+//
+// REPLACE BEFORE DEPLOYING — do not commit real values here:
+var CLIENT_ID = 'REPLACE_WITH_YOUR_OAUTH_CLIENT_ID.apps.googleusercontent.com';
+var ALLOWED_EMAILS = ['REPLACE_WITH_YOUR_EMAIL@example.com'];
 
 var SHEET_NAME = 'Weights';
 var DATE_COL = 1;   // A
@@ -8,6 +12,7 @@ var HEADER_ROWS = 1;
 
 function doGet(e) {
   try {
+    requireAuth_(e.parameter.token);
     var action = e.parameter.action;
     if (action === 'list') {
       return listEntries_();
@@ -21,6 +26,7 @@ function doGet(e) {
 function doPost(e) {
   try {
     var body = JSON.parse(e.postData.contents);
+    requireAuth_(body.token);
     var action = body.action;
     if (action === 'add' || action === 'update') {
       return upsertEntry_(body.date, body.weight);
@@ -32,6 +38,48 @@ function doPost(e) {
   } catch (err) {
     return errorResponse_(err.message);
   }
+}
+
+function requireAuth_(token) {
+  var email = verifyToken_(token);
+  if (!isAllowed_(email)) {
+    throw new Error('Not authorized');
+  }
+}
+
+function verifyToken_(token) {
+  if (!token || typeof token !== 'string') {
+    throw new Error('Missing token');
+  }
+
+  var response = UrlFetchApp.fetch(
+    'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(token),
+    { muteHttpExceptions: true }
+  );
+  if (response.getResponseCode() !== 200) {
+    throw new Error('Invalid token');
+  }
+
+  var payload = JSON.parse(response.getContentText());
+
+  if (payload.aud !== CLIENT_ID) {
+    throw new Error('Token audience mismatch');
+  }
+  if (payload.iss !== 'accounts.google.com' && payload.iss !== 'https://accounts.google.com') {
+    throw new Error('Invalid token issuer');
+  }
+  if (!payload.exp || Number(payload.exp) < Math.floor(Date.now() / 1000)) {
+    throw new Error('Token expired');
+  }
+  if (payload.email_verified !== 'true' && payload.email_verified !== true) {
+    throw new Error('Email not verified');
+  }
+
+  return payload.email;
+}
+
+function isAllowed_(email) {
+  return ALLOWED_EMAILS.indexOf(email) !== -1;
 }
 
 function listEntries_() {

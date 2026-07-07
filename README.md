@@ -62,4 +62,64 @@ curl -L -X POST "URL" -H "Content-Type: application/json" \
 - Malformed input, e.g. `curl -X POST "URL" -d '{"action":"add","date":"bad","weight":90}'`, returns `{"ok":false,"error":"..."}` — not an HTTP error page.
 - Note: curl needs `-L` on POST because Apps Script responds with a redirect before the final JSON.
 
-Once all of the above checks out against your real Sheet, we'll move to Phase 2 (auth).
+Phase 1 confirmed working ✅ (2026-07-07).
+
+## Phase 2 — Auth (token verification + email allowlist)
+
+`Code.gs` now requires a valid Google ID token on every request (`list`, `add`, `update`, `delete`).
+
+**Before deploying**, edit the two placeholders at the top of `backend/Code.gs` *after pasting it into the Apps Script editor* — do not commit real values to this repo:
+
+```js
+var CLIENT_ID = 'REPLACE_WITH_YOUR_OAUTH_CLIENT_ID.apps.googleusercontent.com';
+var ALLOWED_EMAILS = ['REPLACE_WITH_YOUR_EMAIL@example.com'];
+```
+
+- `CLIENT_ID`: your OAuth Client ID from Google Cloud Console (the one already authorized for your GitHub Pages + localhost origins).
+- `ALLOWED_EMAILS`: the exact Google account email(s) allowed to use the app.
+
+Then: Save → Deploy → **Manage deployments** → edit your existing deployment → New version → Deploy (this keeps the same `/exec` URL).
+
+### Getting a real ID token to test with
+
+Easiest option — a throwaway local HTML file (not part of this repo, don't commit it) that loads GIS with your real Client ID and logs the token to the console:
+
+```html
+<script src="https://accounts.google.com/gsi/client"></script>
+<div id="g_id_onload"
+     data-client_id="YOUR_CLIENT_ID.apps.googleusercontent.com"
+     data-callback="handleToken"></div>
+<div class="g_id_signin"></div>
+<script>
+  function handleToken(response) { console.log(response.credential); }
+</script>
+```
+Open it via `http://localhost:PORT/...` (must match an authorized origin), sign in, copy the logged token.
+
+### Test commands
+
+Replace `URL` with your Web App URL and `TOKEN` with the token you copied.
+
+```bash
+# 1. No token — should be rejected
+curl "URL?action=list"
+
+# 2. Garbage/expired token — should be rejected
+curl "URL?action=list&token=not-a-real-token"
+
+# 3. Valid token, correct email — should succeed
+curl "URL?action=list&token=TOKEN"
+
+curl -L -X POST "URL" -H "Content-Type: application/json" \
+  -d '{"action":"add","date":"2026-07-07","weight":90.0,"token":"TOKEN"}'
+```
+
+For the "wrong email" case: temporarily set `ALLOWED_EMAILS` to `['someone-else@example.com']`, redeploy, retry request 3 above (should now be rejected), then set it back to your real email and redeploy again.
+
+**What to check:**
+- Case 1 & 2 → `{"ok":false,"error":"..."}` (`Missing token` / `Invalid token`), Sheet untouched.
+- Wrong-email case → `{"ok":false,"error":"Not authorized"}`, Sheet untouched.
+- Case 3 (valid token, correct email) → succeeds exactly like Phase 1.
+- Token more than ~1 hour old (GIS ID tokens expire in ~1hr) → `{"ok":false,"error":"Token expired"}`.
+
+Once all of the above checks out, we'll move to Phase 3 (frontend shell).
