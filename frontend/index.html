@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weight Tracker</title>
+<link rel="stylesheet" href="style.css">
+
+<!-- PWA: installability (Android/Chrome reads the manifest) -->
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon/icon-512.png">
+<meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+
+<!-- PWA: iOS/Safari doesn't reliably read the manifest for home-screen
+     install — these are the standalone equivalents it does read. -->
+<link rel="apple-touch-icon" href="icon/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Weight Tracker">
+</head>
+<body>
+
+<!-- Screen: Login (online + offline variants, toggled via .offline-banner[hidden]) -->
+<div id="screen-login" class="screen">
+  <header class="app-header"><h1>Weight Tracker</h1></header>
+  <div id="login-offline-banner" class="offline-banner" hidden>⚠ You're offline — sign-in needs an internet connection.</div>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-mark">⚖</div>
+      <h2 id="login-heading">Sign in to continue</h2>
+      <p>Your weight history is private to your Google account.</p>
+      <div id="gsi-button-container" class="gsi-button-container"></div>
+      <p id="login-error" class="inline-error" hidden></p>
+    </div>
+  </div>
+</div>
+
+<!-- Screen: Attempting silent sign-in -->
+<div id="screen-silent" class="screen" hidden>
+  <header class="app-header"><h1>Weight Tracker</h1></header>
+  <div class="loading-wrap">
+    <div class="spinner" aria-hidden="true"></div>
+    Signing you in…
+  </div>
+</div>
+
+<!-- Screen: Main app (online logged in / offline logged in, toggled via classes below) -->
+<div id="screen-app" class="screen" hidden>
+  <header class="app-header">
+    <h1>Weight Tracker</h1>
+    <div class="account-area">
+      <span id="role-badge" class="role-badge" hidden></span>
+      <div class="avatar" id="avatar"></div>
+      <span class="account-email" id="account-email"></span>
+      <button id="logout-btn" class="logout-btn" type="button">Log out</button>
+    </div>
+  </header>
+  <div id="sync-bar" class="sync-bar" hidden></div>
+  <div id="app-offline-banner" class="offline-banner" hidden>
+    ⚠ You're offline — showing data as of <span id="last-synced-at">—</span>. Editing is disabled until you reconnect.
+  </div>
+
+  <main>
+    <section class="card" aria-labelledby="entry-heading">
+      <h2 id="entry-heading">Log weight</h2>
+      <form id="entry-form">
+        <div class="field">
+          <label id="date-field-label">Date</label>
+          <button id="date-trigger" class="date-trigger" type="button" aria-haspopup="true" aria-expanded="false" aria-labelledby="date-field-label date-trigger-label">
+            <span id="date-trigger-label"></span>
+            <span class="chevron" id="date-chevron" aria-hidden="true">▼</span>
+          </button>
+          <div id="calendar-panel" class="calendar-panel" hidden>
+            <div class="cal-header">
+              <button id="cal-prev" class="cal-nav" type="button" aria-label="Previous month">‹</button>
+              <span id="cal-month-label" class="cal-month"></span>
+              <button id="cal-next" class="cal-nav" type="button" aria-label="Next month">›</button>
+            </div>
+            <div class="cal-weekdays" aria-hidden="true"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+            <div id="cal-grid" class="cal-grid" role="grid"></div>
+          </div>
+        </div>
+        <div class="field">
+          <label for="weight-input">Weight (kg)</label>
+          <input id="weight-input" name="weight" type="number" step="0.1" min="1" max="500" required>
+        </div>
+        <button id="save-btn" type="submit">Save</button>
+      </form>
+      <p id="form-status" role="status" aria-live="polite"></p>
+      <p id="offline-field-note" class="field-note" hidden>Reconnect to add or edit entries.</p>
+      <p id="readonly-field-note" class="field-note" hidden>You have read-only access.</p>
+    </section>
+
+    <section class="card" aria-labelledby="chart-heading">
+      <h2 id="chart-heading">Trend</h2>
+      <div class="range-pills" id="range-pills">
+        <button class="range-pill" type="button" data-range="7">7D</button>
+        <button class="range-pill" type="button" data-range="30">30D</button>
+        <button class="range-pill" type="button" data-range="90">90D</button>
+        <button class="range-pill active" type="button" data-range="all">All</button>
+      </div>
+      <div class="chart-container">
+        <canvas id="weight-chart"></canvas>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="history-heading">
+      <div class="card-heading-row">
+        <h2 id="history-heading">History</h2>
+        <button id="refresh-btn" type="button" class="refresh-btn">↻ Refresh</button>
+      </div>
+      <p id="refresh-status" role="status" aria-live="polite"></p>
+      <div class="table-wrap">
+        <table id="entries-table">
+          <thead>
+            <tr>
+              <th scope="col">Date</th>
+              <th scope="col">Weight (kg)</th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="entries-body">
+            <tr class="empty-row">
+              <td colspan="3">No entries yet</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://accounts.google.com/gsi/client"></script>
+<script src="config.js"></script>
+<script src="app.js" defer></script>
+</body>
+</html>
