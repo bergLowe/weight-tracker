@@ -368,10 +368,15 @@ async function apiPost(action, fields) {
 
 // A server-reported auth failure (expired/invalid token, wrong email) means
 // the session is really over — force logout rather than treating it like an
-// ordinary failed request.
-function handleAuthFailure() {
+// ordinary failed request. Show the backend's actual reason (not just a
+// generic "session ended") — it's only ever shown to the person who just
+// tried to sign in, on their own device, so there's no exposure risk, and
+// it's the difference between a diagnosable message ("Not authorized") and
+// a dead end.
+function handleAuthFailure(reason) {
   logout();
-  showLoginError('Your session ended, please sign in again.');
+  const detail = reason ? ` (${reason})` : '';
+  showLoginError('Your session ended, please sign in again.' + detail);
 }
 
 function setRefreshStatus(message, tone) {
@@ -395,7 +400,7 @@ function setHistoryControlsDisabled(disabled) {
 async function refreshData() {
   const result = await apiGet('list');
   if (!result.ok) {
-    if (result.code === 'auth') { handleAuthFailure(); return false; }
+    if (result.code === 'auth') { handleAuthFailure(result.error); return false; }
     setRefreshStatus("Couldn't refresh — try again.", 'error');
     return false;
   }
@@ -499,7 +504,7 @@ async function handleDelete(entry) {
 
   const result = await apiPost('delete', { date: entry.date });
   if (!result.ok) {
-    if (result.code === 'auth') { handleAuthFailure(); return; }
+    if (result.code === 'auth') { handleAuthFailure(result.error); return; }
     setRefreshStatus(
       result.code === 'forbidden' ? "You don't have permission to make changes." : "Couldn't delete — try again.",
       'error'
@@ -536,7 +541,7 @@ function initForm() {
     const result = await apiPost('add', { date: toISODate(selectedDate), weight });
 
     if (!result.ok) {
-      if (result.code === 'auth') { handleAuthFailure(); return; }
+      if (result.code === 'auth') { handleAuthFailure(result.error); return; }
       status.dataset.tone = 'error';
       if (result.code === 'forbidden') {
         // The UI should already have this disabled (read-only role) — this is
