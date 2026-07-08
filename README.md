@@ -296,7 +296,28 @@ Phase 5 (and the roles addition) confirmed working ✅.
 4. **Offline shell:** with the app already opened once (so the service worker has installed), turn off networking entirely (not just the backend — actual network), reload. The app shell should still load — landing on the login screen (with its offline banner) if you weren't already signed in, since the token is memory-only and doesn't survive a reload either way.
 5. **DevTools → Application → Service Workers:** confirm one is registered and activated; **Application → Cache Storage**: confirm `weight-tracker-v1` contains the precached files listed above.
 
-Once this checks out, we'll move to Phase 7 (final GitHub Pages deployment, end-to-end on the live URL — the deploy workflow itself is already in place, see below).
+Phase 6 confirmed working ✅.
+
+## Phase 7 — Live deployment
+
+**Live URL: https://berglowe.github.io/weight-tracker/**
+
+PR #1 merged to `main` on 2026-07-08. The deploy workflow's first run (triggered automatically by the merge) failed — the `OAUTH_CLIENT_ID`/`WEB_APP_URL` secrets weren't added yet at that point, exactly the timing risk called out when the workflow was set up. A manual re-run (Actions tab → **Run workflow**) after adding both secrets succeeded — every step green (config generation, Pages setup, artifact upload, deploy).
+
+### Two things to double-check now that the URL is real
+
+1. **Authorized JavaScript origins** (Google Cloud Console → your OAuth Client): must include `https://berglowe.github.io` — the bare origin (scheme + host), **no path and no trailing slash**. `/weight-tracker/` is not part of the origin check; adding the full URL with the path is a common mistake that silently doesn't match.
+2. **`WEB_APP_URL` secret**: confirm it's your actual deployed Apps Script `/exec` URL, not a placeholder — a wrong value here would make every API call fail with a network/CORS error rather than a clean `{ok:false}` response, which is harder to diagnose from the deployed site than it was against `localhost`.
+
+### End-to-end test checklist, on the live URL
+
+1. Open the live URL fresh (private/incognito window, so there's no leftover local state). Confirm it lands on the login screen, not a blank page or a console error.
+2. Sign in with your admin Google account. Confirm the badge reads "Admin", real data loads into the table/chart/calendar.
+3. Add, edit, and delete an entry; confirm each round-trips to the actual Sheet (check the Sheet directly).
+4. Click Refresh; confirm it re-fetches without error.
+5. If you set up a read-only account: sign in as that account, confirm the badge reads "Read", write controls are disabled, and refresh still works.
+6. Install as a PWA on an Android and/or iOS device against the live URL specifically (not localhost) — this is the first time install has been tested against the real origin. Confirm the icon, standalone launch, and an offline reload after the first successful load.
+7. Log out, confirm you land back on the login screen and a stale token doesn't silently let you back in.
 
 ## Deploying to GitHub Pages (`.github/workflows/deploy.yml`)
 
