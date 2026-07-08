@@ -131,6 +131,8 @@ For the "wrong email" case: temporarily set `ALLOWED_EMAILS` to `['someone-else@
 
 Phase 2 confirmed working ✅ (2026-07-08).
 
+**Added in Phase 5:** every auth failure above now also carries `"code":"auth"` in the response (e.g. `{"ok":false,"error":"Token expired","code":"auth"}`), so the frontend can reliably tell "your session is over, log out" apart from an ordinary failed request without string-matching the `error` text. Purely additive — the `error` messages themselves are unchanged.
+
 ## Phase 3 — Frontend shell (no auth, no backend calls)
 
 `frontend/index.html` + `frontend/style.css` + `frontend/app.js` now implement every screen in the online/offline flow (see the design artifacts shared earlier) as real, working UI — still with no auth and no backend calls (that's Phase 4/5). All three screens exist in the DOM simultaneously and are switched with `hidden`:
@@ -199,17 +201,46 @@ cp frontend/config.example.js frontend/config.js
 7. Turn off your network (devtools → Network → Offline, or actually disconnect), then reload — you should land straight on the login screen with the offline banner, no silent-sign-in attempt, and clicking the sign-in area does nothing harmful (Google's button itself will show its own error state, since the GIS script won't have loaded).
 8. Reconnect — the offline banner should clear on its own without reloading.
 
-Once this checks out, we'll move to Phase 5 (wiring the frontend to the real backend — add/list/update/delete, and removing the temporary console logging of the token).
+Phase 4 confirmed working ✅ (2026-07-08) — silent sign-in / offline fallback debugging deferred; may remove the auto-login feature later if it doesn't hold up.
+
+## Phase 5 — Frontend/backend integration
+
+Add/list/update/delete now hit the real Apps Script backend. The temporary token console-logging from Phase 4 is gone — the token is only ever used in real requests now.
+
+**Before testing**, add `WEB_APP_URL` to your local `frontend/config.js` (see `config.example.js`) — your deployed Apps Script Web App URL, ending in `/exec`.
+
+**What changed:**
+- `apiGet`/`apiPost` wrap `fetch`, always sending the token (`?token=` for GET, a `token` field in the JSON body for POST). POST requests use `Content-Type: text/plain` on purpose — Apps Script has no `doOptions` handler, so `application/json` would trigger a CORS preflight and fail outright; Apps Script reads `e.postData.contents` regardless of the declared content type.
+- Signing in now actually verifies the token: `handleCredentialResponse` calls `loadInitialData()`, which shows the app screen and calls the real `list` endpoint (with the sync bar visible while it's in flight). A `code:"auth"` response anywhere — initial verify, or a later add/update/delete — forces a real logout with "Your session ended, please sign in again," per the design doc.
+- History table, chart, and the calendar's entry-dots all render from the real fetched data. Table rows sort newest-first; edit prefills the date (via the calendar) and weight and lets Save do the rest (the backend upserts by date, so add/edit are the same call); delete asks for confirmation, then re-fetches.
+- Save disables the button and shows "Saving…" / "Saved." / an inline error; delete failures use a plain `alert()` — both intentionally minimal, no custom toast/modal system for a single-user app.
+- Dates round-trip through a local-midnight parser (`parseISODateLocal`), not `new Date(iso)` — the latter parses as UTC and can land on the wrong calendar day near timezone boundaries. Same class of bug the backend already avoided; the frontend needed the same care.
+
+**Not in this phase:** offline data caching (localStorage) and the real offline-read-only main-app experience — `setOffline()` is still a manual QA toggle. That lands in Phase 6 alongside the service worker, since both are about what the app can do without a network.
+
+### Test steps
+
+1. Fill in `WEB_APP_URL` in `frontend/config.js`, sign in.
+2. Confirm your real Sheet rows appear in the history table (newest first) and on the chart, and that days with entries show a dot on the calendar.
+3. Add an entry for a date you don't have yet — check it appears in the table/chart/calendar, and in the Sheet itself.
+4. Click **Edit** (✎) on a row — confirm the date and weight prefill correctly — change the weight and Save. Confirm it updated in place (no duplicate row), both in the app and the Sheet.
+5. Click **Delete** (✕) on a row, confirm the dialog, confirm it's gone from the table/chart/calendar and the Sheet.
+6. Try saving with an invalid/empty weight — confirm the inline "Enter a valid weight" message, and that nothing is sent (check the Network tab).
+7. To test the forced-logout path: in the console, `authToken = 'garbage'; refreshData();` — should immediately log you out to the login screen with "Your session ended, please sign in again."
+
+Once this checks out, we'll move to Phase 6 (PWA: manifest, service worker, offline install/caching).
 
 ## Deploying to GitHub Pages (`.github/workflows/deploy.yml`)
 
 Set up ahead of Phase 7, since the Client ID handling needed deciding now rather than retrofitting later.
 
-GitHub Pages serves static files straight from the repo — there's no server-side templating, so `frontend/config.js` (gitignored, holds the real Client ID) has to be generated at deploy time instead of committed. The workflow does that: on every push to `main`, it builds `frontend/config.js` from `frontend/config.example.js` with the real Client ID substituted in from a GitHub Actions secret, then publishes `frontend/` via GitHub's official Pages actions. The Client ID never appears in git history on any branch.
+GitHub Pages serves static files straight from the repo — there's no server-side templating, so `frontend/config.js` (gitignored, holds the real Client ID and Web App URL) has to be generated at deploy time instead of committed. The workflow does that: on every push to `main`, it builds `frontend/config.js` from `frontend/config.example.js` with both values substituted in from GitHub Actions secrets, then publishes `frontend/` via GitHub's official Pages actions. Neither value ever appears in git history on any branch.
 
 **One-time setup (do this before the workflow will succeed):**
 1. Repo → **Settings → Pages → Build and deployment → Source** → set to **GitHub Actions** (not "Deploy from a branch").
-2. Repo → **Settings → Secrets and variables → Actions → New repository secret** → name it `OAUTH_CLIENT_ID`, value = your real Client ID (the full string, e.g. `xxxxx.apps.googleusercontent.com`).
+2. Repo → **Settings → Secrets and variables → Actions → New repository secret** → add two:
+   - `OAUTH_CLIENT_ID` = your real Client ID (the full string, e.g. `xxxxx.apps.googleusercontent.com`)
+   - `WEB_APP_URL` = your deployed Apps Script Web App URL (ends in `/exec`). Not sensitive on its own — it's gated by the token + allowlist check server-side — but handled the same way for consistency.
 3. Make sure your OAuth Client's **Authorized JavaScript origins** (Google Cloud Console) includes your GitHub Pages URL once you know it (`https://<username>.github.io` or your custom domain).
 
 The workflow only triggers on pushes to `main` (or manually via the **Run workflow** button in the Actions tab) — it won't run yet since this branch's work lands there via PR. Once merged, every push to `main` redeploys automatically.

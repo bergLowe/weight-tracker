@@ -1,6 +1,7 @@
-// Phase 3: visual shell for every screen in the online/offline flow.
-// No auth, no backend calls yet — screens are switched manually for now.
-// QA helpers exposed on window: showScreen('login'|'silent'|'app'), setOffline(bool).
+// Every screen in the online/offline flow, wired to real Google sign-in and the
+// real Apps Script backend. QA helpers exposed on window: showScreen('login'|'silent'|'app'),
+// setOffline(bool) — the latter is still a manual toggle; real offline data caching
+// (localStorage) is Phase 6.
 
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -45,7 +46,7 @@ window.setOffline = setOffline;
 let selectedDate = startOfDay(new Date());
 let calendarViewYear = selectedDate.getFullYear();
 let calendarViewMonth = selectedDate.getMonth();
-const entryDates = new Set(); // Phase 5: populated from fetched entries, drives the dot marker
+const entryDates = new Set(); // populated from fetched entries, drives the calendar's dot marker
 
 function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -56,6 +57,23 @@ function toISODate(date) {
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+// yyyy-MM-dd -> local-midnight Date. NOT `new Date(iso)` — that parses as UTC
+// midnight, which can land on the wrong local day near timezone boundaries.
+function parseISODateLocal(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function formatTableDate(iso) {
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+function formatChartLabel(iso) {
+  const d = parseISODateLocal(iso);
+  return `${d.getDate()} ${d.toLocaleDateString('en-US', { month: 'short' })}`;
 }
 
 function formatDisplayDate(date) {
@@ -165,7 +183,7 @@ function initCalendar() {
 // ================= Chart =================
 
 let chart;
-let allEntries = []; // Phase 5: populated from the API
+let allEntries = []; // populated from the API, sorted ascending by date
 let activeRange = 'all';
 
 const crosshairPlugin = {
@@ -265,11 +283,11 @@ function applyRangeFilter() {
   let filtered = allEntries;
   if (activeRange !== 'all') {
     const days = Number(activeRange);
-    const cutoff = new Date();
+    const cutoff = startOfDay(new Date());
     cutoff.setDate(cutoff.getDate() - days);
-    filtered = allEntries.filter((e) => new Date(e.date) >= cutoff);
+    filtered = allEntries.filter((e) => parseISODateLocal(e.date) >= cutoff);
   }
-  chart.data.labels = filtered.map((e) => e.date);
+  chart.data.labels = filtered.map((e) => formatChartLabel(e.date));
   chart.data.datasets[0].data = filtered.map((e) => e.weight);
   chart.update();
 }
@@ -285,26 +303,177 @@ function initRangePills() {
   });
 }
 
-// ================= Form (still no backend — Phase 5) =================
+// ================= Backend API =================
+
+async function apiGet(action) {
+  const url = new URL(CONFIG.WEB_APP_URL);
+  url.searchParams.set('action', action);
+  url.searchParams.set('token', authToken);
+  const res = await fetch(url.toString());
+  return res.json();
+}
+
+async function apiPost(action, fields) {
+  // Content-Type must stay text/plain: Apps Script has no doOptions handler,
+  // so application/json would trigger a CORS preflight and fail outright.
+  // Apps Script reads e.postData.contents regardless of the declared type.
+  const res = await fetch(CONFIG.WEB_APP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(Object.assign({ action, token: authToken }, fields))
+  });
+  return res.json();
+}
+
+// A server-reported auth failure (expired/invalid token, wrong email) means
+// the session is really over — force logout rather than treating it like an
+// ordinary failed request.
+function handleAuthFailure() {
+  logout();
+  showLoginError('Your session ended, please sign in again.');
+}
+
+async function refreshData() {
+  const result = await apiGet('list');
+  if (!result.ok) {
+    if (result.code === 'auth') handleAuthFailure();
+    return false;
+  }
+  allEntries = result.data;
+  entryDates.clear();
+  allEntries.forEach((e) => entryDates.add(e.date));
+  renderHistoryTable();
+  applyRangeFilter();
+  if (!document.getElementById('calendar-panel').hidden) renderCalendarGrid();
+  return true;
+}
+
+async function loadInitialData() {
+  showScreen('app');
+  const syncBar = document.getElementById('sync-bar');
+  syncBar.hidden = false;
+  await refreshData();
+  syncBar.hidden = true;
+}
+
+// ================= History table =================
+
+function renderHistoryTable() {
+  const tbody = document.getElementById('entries-body');
+  tbody.textContent = '';
+
+  if (allEntries.length === 0) {
+    const tr = document.createElement('tr');
+    tr.className = 'empty-row';
+    const td = document.createElement('td');
+    td.colSpan = 3;
+    td.textContent = 'No entries yet';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  const sorted = allEntries.slice().sort((a, b) => b.date.localeCompare(a.date));
+  sorted.forEach((entry) => {
+    const tr = document.createElement('tr');
+
+    const dateTd = document.createElement('td');
+    dateTd.textContent = formatTableDate(entry.date);
+    const weightTd = document.createElement('td');
+    weightTd.textContent = entry.weight;
+
+    const actionsTd = document.createElement('td');
+    const actions = document.createElement('div');
+    actions.className = 'row-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'icon-btn';
+    editBtn.textContent = '✎';
+    editBtn.setAttribute('aria-label', 'Edit');
+    editBtn.addEventListener('click', () => startEdit(entry));
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'icon-btn';
+    deleteBtn.textContent = '✕';
+    deleteBtn.setAttribute('aria-label', 'Delete');
+    deleteBtn.addEventListener('click', () => handleDelete(entry));
+
+    actions.append(editBtn, deleteBtn);
+    actionsTd.appendChild(actions);
+    tr.append(dateTd, weightTd, actionsTd);
+    tbody.appendChild(tr);
+  });
+}
+
+function startEdit(entry) {
+  selectedDate = parseISODateLocal(entry.date);
+  renderDateTrigger();
+  document.getElementById('weight-input').value = entry.weight;
+  document.getElementById('weight-input').focus();
+}
+
+async function handleDelete(entry) {
+  if (!confirm(`Delete the entry for ${formatTableDate(entry.date)}?`)) return;
+  const result = await apiPost('delete', { date: entry.date });
+  if (!result.ok) {
+    if (result.code === 'auth') { handleAuthFailure(); return; }
+    alert("Couldn't delete — try again.");
+    return;
+  }
+  await refreshData();
+}
+
+// ================= Form =================
 
 function initForm() {
   const form = document.getElementById('entry-form');
   const status = document.getElementById('form-status');
-  form.addEventListener('submit', (e) => {
+  const saveBtn = document.getElementById('save-btn');
+
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const weight = parseFloat(document.getElementById('weight-input').value);
+    if (!weight || weight <= 0) {
+      status.dataset.tone = 'error';
+      status.textContent = 'Enter a valid weight.';
+      return;
+    }
+
+    saveBtn.disabled = true;
     status.dataset.tone = '';
-    status.textContent = "Shell only — saving isn't wired up yet (Phase 5).";
+    status.textContent = 'Saving…';
+
+    const result = await apiPost('add', { date: toISODate(selectedDate), weight });
+
+    saveBtn.disabled = false;
+    if (!result.ok) {
+      if (result.code === 'auth') { handleAuthFailure(); return; }
+      status.dataset.tone = 'error';
+      status.textContent = "Couldn't save — try again.";
+      return;
+    }
+
+    status.dataset.tone = '';
+    status.textContent = 'Saved.';
+    await refreshData();
+
+    // Reset to "ready for the next entry" — today's date, blank weight.
+    selectedDate = startOfDay(new Date());
+    renderDateTrigger();
+    document.getElementById('weight-input').value = '';
   });
 }
 
 // ================= Auth (Google Identity Services) =================
 //
 // Token lives in memory only (lost on reload — see the design doc for why).
-// Verifying the token against the backend, and everything that depends on
-// real data, is Phase 5. This phase only proves sign-in works end-to-end.
+// Decoded claims are for display only (avatar/email) — the backend is the
+// only thing that actually verifies the token; see requireAuth_ in Code.gs.
 
 let authToken = null;
-let tokenClaims = null; // decoded client-side for display only — NOT a security check
+let tokenClaims = null;
 
 function decodeJwtPayload(token) {
   const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
@@ -314,19 +483,22 @@ function decodeJwtPayload(token) {
   return JSON.parse(json);
 }
 
+function showLoginError(message) {
+  const el = document.getElementById('login-error');
+  el.textContent = message;
+  el.hidden = false;
+}
+
+function clearLoginError() {
+  document.getElementById('login-error').hidden = true;
+}
+
 function handleCredentialResponse(response) {
+  clearLoginError();
   authToken = response.credential;
   tokenClaims = decodeJwtPayload(authToken);
-
-  // Phase 4 scope is proving sign-in works — log temporarily, remove once
-  // Phase 5 sends this to the backend instead.
-  console.log('ID token (temporary, remove before Phase 5 ships):', authToken);
-  console.log('Decoded claims (client-side only, not verified):', tokenClaims);
-
   renderAccountArea();
-  // Phase 5: verify this token against the backend (and load real data)
-  // before trusting it — for now we optimistically show the app shell.
-  showScreen('app');
+  loadInitialData(); // verifies the token server-side via the first list() call
 }
 
 function renderAccountArea() {
@@ -338,6 +510,7 @@ function renderAccountArea() {
 
 function attemptSilentSignIn() {
   showScreen('silent');
+  clearLoginError();
   google.accounts.id.prompt((notification) => {
     if (notification.isNotDisplayed() || notification.isSkippedMoment() || notification.isDismissedMoment()) {
       // No active Google session, One Tap cooldown, or previously dismissed —
@@ -350,6 +523,8 @@ function attemptSilentSignIn() {
 function logout() {
   authToken = null;
   tokenClaims = null;
+  allEntries = [];
+  entryDates.clear();
   document.getElementById('avatar').textContent = '';
   document.getElementById('account-email').textContent = '';
   if (window.google && google.accounts) google.accounts.id.disableAutoSelect();

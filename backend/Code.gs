@@ -13,6 +13,10 @@ var HEADER_ROWS = 1;
 function doGet(e) {
   try {
     requireAuth_(e.parameter.token);
+  } catch (err) {
+    return authErrorResponse_(err.message);
+  }
+  try {
     var action = e.parameter.action;
     if (action === 'list') {
       return listEntries_();
@@ -24,9 +28,18 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  var body;
   try {
-    var body = JSON.parse(e.postData.contents);
+    body = JSON.parse(e.postData.contents);
+  } catch (err) {
+    return errorResponse_('Malformed request body');
+  }
+  try {
     requireAuth_(body.token);
+  } catch (err) {
+    return authErrorResponse_(err.message);
+  }
+  try {
     var action = body.action;
     if (action === 'add' || action === 'update') {
       return upsertEntry_(body.date, body.weight);
@@ -213,4 +226,8 @@ function jsonResponse_(obj) {
 
 function errorResponse_(message) {
   return jsonResponse_({ ok: false, error: message });
+}
+
+function authErrorResponse_(message) {
+  return jsonResponse_({ ok: false, error: message, code: 'auth' });
 }

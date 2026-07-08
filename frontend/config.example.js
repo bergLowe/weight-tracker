@@ -6,5 +6,6 @@
 // Client ID. For GitHub Pages: .github/workflows/deploy.yml generates the real
 // config.js at deploy time from the OAUTH_CLIENT_ID repository secret.
 const CONFIG = {
-  CLIENT_ID: 'REPLACE_WITH_YOUR_OAUTH_CLIENT_ID.apps.googleusercontent.com'
+  CLIENT_ID: 'REPLACE_WITH_YOUR_OAUTH_CLIENT_ID.apps.googleusercontent.com',
+  WEB_APP_URL: 'REPLACE_WITH_YOUR_APPS_SCRIPT_WEB_APP_URL'
 };

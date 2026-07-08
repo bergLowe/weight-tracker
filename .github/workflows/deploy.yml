@@ -24,12 +24,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Generate config.js from the OAUTH_CLIENT_ID secret
+      - name: Generate config.js from repository secrets
         run: |
-          sed "s|REPLACE_WITH_YOUR_OAUTH_CLIENT_ID.apps.googleusercontent.com|${OAUTH_CLIENT_ID}|" \
+          sed \
+            -e "s|REPLACE_WITH_YOUR_OAUTH_CLIENT_ID.apps.googleusercontent.com|${OAUTH_CLIENT_ID}|" \
+            -e "s|REPLACE_WITH_YOUR_APPS_SCRIPT_WEB_APP_URL|${WEB_APP_URL}|" \
             frontend/config.example.js > frontend/config.js
         env:
           OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
+          WEB_APP_URL: ${{ secrets.WEB_APP_URL }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
