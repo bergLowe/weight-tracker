@@ -67,6 +67,7 @@ body {
 .app-header h1 {
   font-size: 1.25rem;
   margin: 0;
+  flex: none;
 }
 
 /* ---------- Account area / logout ---------- */
@@ -75,6 +76,9 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-end;
 }
 
 .avatar {
@@ -94,9 +98,14 @@ body {
 .account-email {
   font-size: 0.85rem;
   color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .logout-btn {
+  flex: none;
   font: inherit;
   font-size: 0.85rem;
   padding: 7px 13px;
@@ -187,19 +196,10 @@ body {
   font-size: 0.85rem;
 }
 
-.google-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font: inherit;
-  font-size: 0.86rem;
-  font-weight: 500;
-  padding: 9px 18px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--surface-card);
-  color: var(--text-primary);
-  cursor: pointer;
+.gsi-button-container {
+  display: flex;
+  justify-content: center;
+  min-height: 40px;
 }
 
 .inline-error {

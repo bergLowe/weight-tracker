@@ -163,13 +163,44 @@ Open `http://localhost:8000` in a browser.
 
 **What to check:**
 - Page loads with no console errors (Chart.js loads from CDN — needs internet access). Default screen is the login screen.
-- `setOffline(true)` in the console shows the offline banner on both the login screen and (after `showScreen('app')`) the main app, and disables the date field, weight input, Save button, and every row's edit/delete buttons. `setOffline(false)` reverses all of it.
+- `setOffline(true)` in the console shows the offline banner + disables the date field, weight input, Save button, and every row's edit/delete buttons in the main app (`showScreen('app')` first). `setOffline(false)` reverses all of it. (The login screen's offline banner is real now — see Phase 4 below — so toggle it by actually disconnecting, not with this helper.)
 - `showScreen('app')`: click the date field — a calendar opens with today ringed/selected, future dates greyed out and unclickable, and prev/next-month navigation working. Pick a past day and confirm the trigger label updates and the calendar closes.
 - In the console: `const c = Chart.getChart('weight-chart'); c.data.labels = ['2026-06-01','2026-07-08']; c.data.datasets[0].data = [88, 90.5]; c.update();` then hover the chart — a dashed crosshair and a tooltip (date + kg, bold) should track the nearest point.
 - Layout is usable and uncramped at both a phone width (~390px) and a desktop width.
 - Toggle your OS/browser dark mode and confirm every screen follows it — including the calendar and chart.
 
-Once this looks right, we'll move to Phase 4 (wiring in Google Sign-In).
+Phase 3 confirmed working ✅ (2026-07-08).
+
+## Phase 4 — Frontend auth (Google Identity Services)
+
+Real GIS sign-in, still with **no backend calls** — the token is obtained and decoded client-side only, never sent anywhere yet (that's Phase 5).
+
+**Before testing**, edit `frontend/config.js` (created this phase) with your real Client ID — do not commit the real value:
+```js
+const CONFIG = {
+  CLIENT_ID: 'REPLACE_WITH_YOUR_OAUTH_CLIENT_ID.apps.googleusercontent.com'
+};
+```
+
+**What changed:**
+- The custom-styled sign-in button was replaced with Google's own rendered button (`google.accounts.id.renderButton`). This is a deliberate change from the earlier design mockup — a hand-styled button would have to fall back to `google.accounts.id.prompt()` on click, which is subject to a cooldown after repeated dismissals and can silently do nothing; `renderButton` always works regardless of that cooldown, so it's the more reliable choice for an explicit "click to sign in" affordance. The exact pixel styling is Google's, not ours (configured close to our design: outline theme, rectangular, "Sign in with Google" text).
+- On load, if online: shows the silent-sign-in screen and calls `google.accounts.id.prompt()` (with `auto_select: true`) — if you have an active Google session and previously consented, you'll be signed in with zero clicks. If not (or it's on cooldown), it falls back to the login screen automatically — that's expected, not an error.
+- On load, if offline: skips the silent attempt entirely and shows the login screen with its (now real, connectivity-driven) offline banner. The banner also updates live if you toggle your connection while sitting on the login screen.
+- A successful sign-in (silent or manual) logs the raw ID token and its decoded claims to the console — **temporary, for this phase's testing only** — populates the header (avatar initial + email, truncates on narrow screens) from the token's own claims, and shows the main app screen. Nothing is verified against the backend yet; that's Phase 5.
+- Logout clears the in-memory token, calls `google.accounts.id.disableAutoSelect()` (so the next load doesn't immediately silently re-sign you in), and returns to the login screen.
+
+### Test steps
+
+1. Open `http://localhost:8000` with your real Client ID in `config.js`, and make sure your Google Cloud OAuth consent screen's **Authorized JavaScript origins** includes `http://localhost:8000` (should already be set up per the original project brief).
+2. **First load**: you should either get signed in silently (if you have an active Google session) or land on the login screen with a working "Sign in with Google" button.
+3. Click it, complete the Google sign-in flow. Check the console: you should see the raw ID token logged, followed by its decoded claims (your email, name, expiry).
+4. Confirm the header shows your avatar initial and email, and the app screen is showing.
+5. Click **Log out** — you should land back on the login screen.
+6. Reload the page — with an active Google session, you should get signed in silently again (no click) within about a second; the silent-sign-in screen should flash briefly first.
+7. Turn off your network (devtools → Network → Offline, or actually disconnect), then reload — you should land straight on the login screen with the offline banner, no silent-sign-in attempt, and clicking the sign-in area does nothing harmful (Google's button itself will show its own error state, since the GIS script won't have loaded).
+8. Reconnect — the offline banner should clear on its own without reloading.
+
+Once this checks out, we'll move to Phase 5 (wiring the frontend to the real backend — add/list/update/delete, and removing the temporary console logging of the token).
 
 ## Troubleshooting
 

@@ -27,7 +27,8 @@ function showScreen(name) {
 }
 
 function setOffline(isOffline) {
-  document.getElementById('login-offline-banner').hidden = !isOffline;
+  // Main-app offline UI (banner text needs a "last synced" time, which only
+  // exists once Phase 5 adds real cached data) — still a manual QA toggle.
   document.getElementById('app-offline-banner').hidden = !isOffline;
   document.getElementById('weight-input').disabled = isOffline;
   document.getElementById('date-trigger').disabled = isOffline;
@@ -296,7 +297,100 @@ function initForm() {
   });
 }
 
+// ================= Auth (Google Identity Services) =================
+//
+// Token lives in memory only (lost on reload — see the design doc for why).
+// Verifying the token against the backend, and everything that depends on
+// real data, is Phase 5. This phase only proves sign-in works end-to-end.
+
+let authToken = null;
+let tokenClaims = null; // decoded client-side for display only — NOT a security check
+
+function decodeJwtPayload(token) {
+  const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+  const json = decodeURIComponent(
+    atob(base64).split('').map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+  );
+  return JSON.parse(json);
+}
+
+function handleCredentialResponse(response) {
+  authToken = response.credential;
+  tokenClaims = decodeJwtPayload(authToken);
+
+  // Phase 4 scope is proving sign-in works — log temporarily, remove once
+  // Phase 5 sends this to the backend instead.
+  console.log('ID token (temporary, remove before Phase 5 ships):', authToken);
+  console.log('Decoded claims (client-side only, not verified):', tokenClaims);
+
+  renderAccountArea();
+  // Phase 5: verify this token against the backend (and load real data)
+  // before trusting it — for now we optimistically show the app shell.
+  showScreen('app');
+}
+
+function renderAccountArea() {
+  const email = tokenClaims.email || '';
+  const name = tokenClaims.name || email;
+  document.getElementById('avatar').textContent = (name[0] || '?').toUpperCase();
+  document.getElementById('account-email').textContent = email;
+}
+
+function attemptSilentSignIn() {
+  showScreen('silent');
+  google.accounts.id.prompt((notification) => {
+    if (notification.isNotDisplayed() || notification.isSkippedMoment() || notification.isDismissedMoment()) {
+      // No active Google session, One Tap cooldown, or previously dismissed —
+      // all normal outcomes, not errors. Fall back to the manual button.
+      showScreen('login');
+    }
+  });
+}
+
+function logout() {
+  authToken = null;
+  tokenClaims = null;
+  document.getElementById('avatar').textContent = '';
+  document.getElementById('account-email').textContent = '';
+  if (window.google && google.accounts) google.accounts.id.disableAutoSelect();
+  showScreen('login');
+}
+
+function updateLoginOfflineBanner() {
+  document.getElementById('login-offline-banner').hidden = navigator.onLine;
+}
+
+function initAuth() {
+  document.getElementById('logout-btn').addEventListener('click', logout);
+  window.addEventListener('online', updateLoginOfflineBanner);
+  window.addEventListener('offline', updateLoginOfflineBanner);
+
+  if (!(window.google && google.accounts && google.accounts.id)) {
+    // GIS script didn't load (most likely offline at page load) — show the
+    // login screen with its offline banner rather than throwing.
+    updateLoginOfflineBanner();
+    showScreen('login');
+    return;
+  }
+
+  google.accounts.id.initialize({
+    client_id: CONFIG.CLIENT_ID,
+    auto_select: true,
+    callback: handleCredentialResponse
+  });
+  google.accounts.id.renderButton(document.getElementById('gsi-button-container'), {
+    theme: 'outline', size: 'large', shape: 'rectangular', text: 'signin_with', width: 260
+  });
+
+  updateLoginOfflineBanner();
+  if (navigator.onLine) {
+    attemptSilentSignIn();
+  } else {
+    showScreen('login');
+  }
+}
+
 initCalendar();
 initForm();
 initRangePills();
-showScreen('login');
+initAuth();
