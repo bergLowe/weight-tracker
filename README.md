@@ -269,7 +269,34 @@ This is a new, third response category alongside plain errors and `code:"auth"` 
    - In the console, confirm the backend itself rejects a bypassed write attempt without logging you out: `await apiPost('add', {date:'2026-01-01', weight:70})` → `{"ok":false,"error":"...","code":"forbidden"}`, and you're still on the app screen, still signed in.
 4. curl, with a read-role token: `list` succeeds and includes `"role":"read"`; `add`/`update`/`delete` all return the `code:"forbidden"` shape above, Sheet untouched.
 
-Once this checks out, we'll move to Phase 6 (PWA: manifest, service worker, offline install/caching).
+Phase 5 (and the roles addition) confirmed working ✅.
+
+## Phase 6 — PWA: installable on Android and iOS, offline app shell
+
+`frontend/manifest.json`, `frontend/service-worker.js`, `frontend/icon/`.
+
+**Icons — a real mismatch worth knowing about:** the files you pushed are named `icon-192.png`/`icon-512.png`, but their *actual* pixel dimensions are 144×144 and 192×192 — one tier smaller than the names claim, and there's no true 512×512 source. The manifest declares `sizes` matching the **real** dimensions (`144x144` / `192x192`), not the filenames — lying about size in the manifest risks Chrome rejecting or blurring the icon. Everything installs and looks fine at typical icon sizes; the only place it'd show is a high-DPI Android splash screen (built from the 192×192 source, upscaled — slightly soft rather than crisp). Not blocking, just flagging in case you want to drop in a true 512×512 source later — swap the file and the manifest doesn't need to change. I also generated `icon/apple-touch-icon.png` (180×180, downscaled from your 192×192 source) since iOS Safari doesn't reliably read the manifest for home-screen icons and looks for its own `<link rel="apple-touch-icon">` instead.
+
+**Android/Chrome:** `manifest.json` (name, icons, `display: standalone`, theme/background color) plus a registered service worker are what Chrome's install criteria actually check for the "Add to Home screen" prompt.
+
+**iOS/Safari:** manifest support is partial, so the standalone experience is driven by meta tags instead — `apple-mobile-web-app-capable` (opens without Safari's browser chrome once installed), `apple-mobile-web-app-status-bar-style`, `apple-mobile-web-app-title`, and the `apple-touch-icon` link. iOS has no install *prompt* — it's Share → Add to Home Screen, manual every time, no way to trigger it programmatically.
+
+**Service worker caching strategy:**
+- Precaches the static shell on install: `index.html`, `style.css`, `app.js`, `config.js`, `manifest.json`, the icons.
+- Cross-origin requests (the Apps Script backend, Chart.js CDN, Google's auth script) are **never** touched by the service worker — always network. Your data must never be served stale, and the CDN scripts aren't useful offline anyway since the features they power (real data, sign-in) need the network regardless.
+- Navigations (opening/reloading the app) are network-first with a cached-shell fallback, so a normal reload always picks up your latest deploy, and only falls back to the cached shell when actually offline.
+- Static sub-resources are cache-first — fast, and available offline.
+- `CACHE_NAME` has a version suffix (`weight-tracker-v1`) — bump it on any deploy that changes a precached file, so `activate` discards the stale cache instead of serving old assets forever.
+
+### Test steps
+
+1. **Local install (desktop Chrome):** serve `frontend/` locally, open it, look for the install icon in the address bar (or Chrome menu → "Install Weight Tracker…"). Install it, confirm it opens in its own window with no browser chrome, and the app icon shows correctly.
+2. **Android:** open the deployed (or local, over your LAN) URL in Chrome, confirm the "Add to Home Screen" prompt appears (or is available via the menu), install, confirm the icon and standalone launch.
+3. **iOS:** open in Safari, Share → Add to Home Screen, confirm the icon (not a screenshot thumbnail) and that launching it from the home screen opens standalone (no Safari address bar).
+4. **Offline shell:** with the app already opened once (so the service worker has installed), turn off networking entirely (not just the backend — actual network), reload. The app shell should still load — landing on the login screen (with its offline banner) if you weren't already signed in, since the token is memory-only and doesn't survive a reload either way.
+5. **DevTools → Application → Service Workers:** confirm one is registered and activated; **Application → Cache Storage**: confirm `weight-tracker-v1` contains the precached files listed above.
+
+Once this checks out, we'll move to Phase 7 (final GitHub Pages deployment, end-to-end on the live URL — the deploy workflow itself is already in place, see below).
 
 ## Deploying to GitHub Pages (`.github/workflows/deploy.yml`)
 

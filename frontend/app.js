@@ -664,8 +664,22 @@ function initAuth() {
   }
 }
 
+function initServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  // Register after load so it doesn't compete with the app's own initial
+  // network requests (auth, first data fetch) for bandwidth/priority.
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('service-worker.js').catch(() => {
+      // Installability/offline is a nice-to-have here, not load-bearing —
+      // a failed registration (e.g. served over plain http in local dev)
+      // shouldn't be treated as an app error.
+    });
+  });
+}
+
 initCalendar();
 initForm();
 initRangePills();
 initRefreshButton();
+initServiceWorker();
 initAuth();

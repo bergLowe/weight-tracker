@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Weight Tracker</title>
 <link rel="stylesheet" href="style.css">
+
+<!-- PWA: installability (Android/Chrome reads the manifest) -->
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon/icon-512.png">
+<meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+
+<!-- PWA: iOS/Safari doesn't reliably read the manifest for home-screen
+     install — these are the standalone equivalents it does read. -->
+<link rel="apple-touch-icon" href="icon/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Weight Tracker">
 </head>
 <body>
 
