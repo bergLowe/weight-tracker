@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weight Tracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="app-header">
+  <h1>Weight Tracker</h1>
+  <div id="auth-area">
+    <button id="signin-btn" type="button" disabled>Sign in with Google</button>
+  </div>
+</header>
+
+<main>
+  <section class="card" aria-labelledby="entry-heading">
+    <h2 id="entry-heading">Log weight</h2>
+    <form id="entry-form">
+      <div class="field">
+        <label for="date-input">Date</label>
+        <input id="date-input" name="date" type="date" required>
+      </div>
+      <div class="field">
+        <label for="weight-input">Weight (kg)</label>
+        <input id="weight-input" name="weight" type="number" step="0.1" min="1" max="500" required>
+      </div>
+      <button id="save-btn" type="submit">Save</button>
+    </form>
+    <p id="form-status" role="status" aria-live="polite"></p>
+  </section>
+
+  <section class="card" aria-labelledby="chart-heading">
+    <h2 id="chart-heading">Trend</h2>
+    <div class="chart-container">
+      <canvas id="weight-chart"></canvas>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="history-heading">
+    <h2 id="history-heading">History</h2>
+    <div class="table-wrap">
+      <table id="entries-table">
+        <thead>
+          <tr>
+            <th scope="col">Date</th>
+            <th scope="col">Weight (kg)</th>
+            <th scope="col"><span class="sr-only">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody id="entries-body">
+          <tr class="empty-row">
+            <td colspan="3">No entries yet</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="app.js" defer></script>
+</body>
+</html>

@@ -129,7 +129,29 @@ For the "wrong email" case: temporarily set `ALLOWED_EMAILS` to `['someone-else@
 
 `verifyToken_` validates the token's shape locally (non-empty, under 4096 chars, three base64url segments separated by dots — the structural shape of a JWT) *before* calling `UrlFetchApp.fetch` against Google's `tokeninfo` endpoint. Garbage input (empty, wrong type, no dots, absurdly long) is rejected for free without ever making the network call. This matters both for cost/quota (Apps Script's `UrlFetchApp` has a daily call quota shared across the whole script) and as a shallow defense layer: cheap local checks (format, presence, size) go first, and only input that survives all of them reaches the expensive, authoritative check. No single layer is meant to be sufficient on its own — the shape check doesn't verify anything cryptographically, it just filters out obviously-invalid input cheaply so the real verification isn't wasted on noise.
 
-Once all of the above checks out, we'll move to Phase 3 (frontend shell).
+Phase 2 confirmed working ✅ (2026-07-08).
+
+## Phase 3 — Frontend shell (no auth, no backend calls)
+
+`frontend/index.html` + `frontend/style.css` + `frontend/app.js`: date picker, weight input form, an empty Chart.js line chart, and a history table (empty state: "No entries yet"). The "Sign in with Google" button is present but disabled/non-functional — wired up in Phase 4. Submitting the form doesn't save anything yet; it just shows "Shell only — saving isn't wired up yet (Phase 5)." No `config.js`, no service worker, no manifest yet — those come in later phases.
+
+### Run it locally
+
+```bash
+cd frontend
+python3 -m http.server 8000
+```
+Open `http://localhost:8000` in a browser.
+
+**What to check:**
+- Page loads with no console errors (Chart.js loads from CDN — needs internet access).
+- Date field defaults to today's date.
+- Layout is usable and uncramped at both a phone width (~390px) and a desktop width — resize the window or use devtools' device toolbar.
+- Typing a weight and clicking Save shows the "Shell only..." status message, and nothing is sent over the network (check the Network tab — no requests to the Apps Script URL).
+- Chart area renders as an empty axis grid (no data yet — that's expected).
+- Toggle your OS/browser dark mode and confirm the page follows it (colors invert, nothing becomes illegible).
+
+Once this looks right, we'll move to Phase 4 (wiring in Google Sign-In).
 
 ## Troubleshooting
 
