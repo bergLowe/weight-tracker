@@ -305,24 +305,37 @@ function initRangePills() {
 
 // ================= Backend API =================
 
+// Both wrap network-level failures (fetch rejecting outright — offline,
+// DNS, connection reset) into the same { ok:false, error } shape the app
+// already handles everywhere, instead of letting them throw uncaught and
+// leave whichever button triggered the call stuck disabled forever.
+
 async function apiGet(action) {
-  const url = new URL(CONFIG.WEB_APP_URL);
-  url.searchParams.set('action', action);
-  url.searchParams.set('token', authToken);
-  const res = await fetch(url.toString());
-  return res.json();
+  try {
+    const url = new URL(CONFIG.WEB_APP_URL);
+    url.searchParams.set('action', action);
+    url.searchParams.set('token', authToken);
+    const res = await fetch(url.toString());
+    return await res.json();
+  } catch (err) {
+    return { ok: false, error: 'Network error — check your connection.' };
+  }
 }
 
 async function apiPost(action, fields) {
   // Content-Type must stay text/plain: Apps Script has no doOptions handler,
   // so application/json would trigger a CORS preflight and fail outright.
   // Apps Script reads e.postData.contents regardless of the declared type.
-  const res = await fetch(CONFIG.WEB_APP_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(Object.assign({ action, token: authToken }, fields))
-  });
-  return res.json();
+  try {
+    const res = await fetch(CONFIG.WEB_APP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({ action, token: authToken }, fields))
+    });
+    return await res.json();
+  } catch (err) {
+    return { ok: false, error: 'Network error — check your connection.' };
+  }
 }
 
 // A server-reported auth failure (expired/invalid token, wrong email) means
@@ -334,11 +347,14 @@ function handleAuthFailure() {
 }
 
 async function refreshData() {
+  const statusEl = document.getElementById('refresh-status');
   const result = await apiGet('list');
   if (!result.ok) {
-    if (result.code === 'auth') handleAuthFailure();
+    if (result.code === 'auth') { handleAuthFailure(); return false; }
+    if (statusEl) statusEl.textContent = "Couldn't refresh — try again.";
     return false;
   }
+  if (statusEl) statusEl.textContent = '';
   allEntries = result.data;
   entryDates.clear();
   allEntries.forEach((e) => entryDates.add(e.date));
@@ -354,6 +370,18 @@ async function loadInitialData() {
   syncBar.hidden = false;
   await refreshData();
   syncBar.hidden = true;
+}
+
+function initRefreshButton() {
+  const btn = document.getElementById('refresh-btn');
+  const syncBar = document.getElementById('sync-bar');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    syncBar.hidden = false;
+    await refreshData();
+    syncBar.hidden = true;
+    btn.disabled = false;
+  });
 }
 
 // ================= History table =================
@@ -568,4 +596,5 @@ function initAuth() {
 initCalendar();
 initForm();
 initRangePills();
+initRefreshButton();
 initAuth();

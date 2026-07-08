@@ -91,7 +91,11 @@
     </section>
 
     <section class="card" aria-labelledby="history-heading">
-      <h2 id="history-heading">History</h2>
+      <div class="card-heading-row">
+        <h2 id="history-heading">History</h2>
+        <button id="refresh-btn" type="button" class="refresh-btn">↻ Refresh</button>
+      </div>
+      <p id="refresh-status" role="status" aria-live="polite"></p>
       <div class="table-wrap">
         <table id="entries-table">
           <thead>

@@ -228,6 +228,13 @@ Add/list/update/delete now hit the real Apps Script backend. The temporary token
 6. Try saving with an invalid/empty weight — confirm the inline "Enter a valid weight" message, and that nothing is sent (check the Network tab).
 7. To test the forced-logout path: in the console, `authToken = 'garbage'; refreshData();` — should immediately log you out to the login screen with "Your session ended, please sign in again."
 
+Phase 5 confirmed working ✅ (2026-07-08).
+
+**Added after Phase 5:**
+- A **Refresh** button next to the History heading re-fetches `list` and updates the table, chart, and calendar dots — for when you've edited the Sheet directly and want the app to catch up. Shows the sync bar while in flight; on failure, shows "Couldn't refresh — try again" next to the button rather than failing silently.
+- Delete already asked for confirmation (native `confirm()`, "Delete the entry for DD/MM/YYYY?") — added in Phase 5, not new.
+- Fixed a latent bug the Refresh button would have hit constantly: `apiGet`/`apiPost` didn't catch `fetch` itself throwing (offline, DNS failure, connection reset — as opposed to a normal `{ok:false}` response). That left whichever button triggered the call — Save, a row's delete, and now Refresh — stuck `disabled` forever with no feedback. Both now catch that and return the same `{ok:false, error}` shape every caller already handles, so the button re-enables and shows an inline message instead of hanging.
+
 Once this checks out, we'll move to Phase 6 (PWA: manifest, service worker, offline install/caching).
 
 ## Deploying to GitHub Pages (`.github/workflows/deploy.yml`)
