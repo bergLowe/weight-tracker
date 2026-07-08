@@ -27,15 +27,43 @@ function showScreen(name) {
   if (name === 'app' && !chart) initChart();
 }
 
+// Write access is blocked by either of two independent conditions: manually
+// simulated offline (main-app offline banner text needs a "last synced" time,
+// which only exists once Phase 6 adds real cached data — still a QA toggle
+// for now), or the signed-in user's role being 'read' rather than 'admin'.
+// Both notes can show at once — each is true regardless of the other.
+let manualOfflineOverride = false;
+let currentUserRole = null; // 'admin' | 'read' | null (not yet known)
+
+function isWriteBlocked() {
+  return manualOfflineOverride || currentUserRole !== 'admin';
+}
+
+function applyWriteAccessUI() {
+  const blocked = isWriteBlocked();
+
+  const badge = document.getElementById('role-badge');
+  if (currentUserRole) {
+    badge.hidden = false;
+    badge.dataset.role = currentUserRole;
+    badge.textContent = currentUserRole === 'admin' ? 'Admin' : 'Read';
+  } else {
+    badge.hidden = true;
+  }
+
+  document.getElementById('weight-input').disabled = blocked;
+  document.getElementById('date-trigger').disabled = blocked;
+  document.getElementById('save-btn').disabled = blocked;
+  document.querySelectorAll('.icon-btn').forEach((b) => { b.disabled = blocked; });
+
+  document.getElementById('offline-field-note').hidden = !manualOfflineOverride;
+  document.getElementById('readonly-field-note').hidden = currentUserRole !== 'read';
+}
+
 function setOffline(isOffline) {
-  // Main-app offline UI (banner text needs a "last synced" time, which only
-  // exists once Phase 5 adds real cached data) — still a manual QA toggle.
+  manualOfflineOverride = isOffline;
   document.getElementById('app-offline-banner').hidden = !isOffline;
-  document.getElementById('weight-input').disabled = isOffline;
-  document.getElementById('date-trigger').disabled = isOffline;
-  document.getElementById('save-btn').disabled = isOffline;
-  document.getElementById('offline-field-note').hidden = !isOffline;
-  document.querySelectorAll('.icon-btn').forEach((b) => { b.disabled = isOffline; });
+  applyWriteAccessUI();
 }
 
 window.showScreen = showScreen;
@@ -354,7 +382,14 @@ function setRefreshStatus(message, tone) {
 
 function setHistoryControlsDisabled(disabled) {
   document.getElementById('refresh-btn').disabled = disabled;
-  document.querySelectorAll('.icon-btn').forEach((b) => { b.disabled = disabled; });
+  if (disabled) {
+    // Entering an operation: disable everything for its duration, regardless of role.
+    document.querySelectorAll('.icon-btn').forEach((b) => { b.disabled = true; });
+  } else {
+    // Leaving one: restore the *correct* standing state (role/offline), not
+    // just "enabled" — a read-only user's row buttons must stay disabled.
+    applyWriteAccessUI();
+  }
 }
 
 async function refreshData() {
@@ -366,11 +401,13 @@ async function refreshData() {
   }
   setRefreshStatus('', '');
   allEntries = result.data;
+  currentUserRole = result.role;
   entryDates.clear();
   allEntries.forEach((e) => entryDates.add(e.date));
   renderHistoryTable();
   applyRangeFilter();
   if (!document.getElementById('calendar-panel').hidden) renderCalendarGrid();
+  applyWriteAccessUI();
   return true;
 }
 
@@ -429,6 +466,7 @@ function renderHistoryTable() {
     editBtn.className = 'icon-btn';
     editBtn.textContent = '✎';
     editBtn.setAttribute('aria-label', 'Edit');
+    editBtn.disabled = isWriteBlocked();
     editBtn.addEventListener('click', () => startEdit(entry));
 
     const deleteBtn = document.createElement('button');
@@ -436,6 +474,7 @@ function renderHistoryTable() {
     deleteBtn.className = 'icon-btn';
     deleteBtn.textContent = '✕';
     deleteBtn.setAttribute('aria-label', 'Delete');
+    deleteBtn.disabled = isWriteBlocked();
     deleteBtn.addEventListener('click', () => handleDelete(entry));
 
     actions.append(editBtn, deleteBtn);
@@ -461,8 +500,11 @@ async function handleDelete(entry) {
   const result = await apiPost('delete', { date: entry.date });
   if (!result.ok) {
     if (result.code === 'auth') { handleAuthFailure(); return; }
-    setRefreshStatus("Couldn't delete — try again.", 'error');
-    setHistoryControlsDisabled(false);
+    setRefreshStatus(
+      result.code === 'forbidden' ? "You don't have permission to make changes." : "Couldn't delete — try again.",
+      'error'
+    );
+    setHistoryControlsDisabled(false); // restores standing state via applyWriteAccessUI — re-disables if read-only
     return;
   }
 
@@ -493,14 +535,23 @@ function initForm() {
 
     const result = await apiPost('add', { date: toISODate(selectedDate), weight });
 
-    saveBtn.disabled = false;
     if (!result.ok) {
       if (result.code === 'auth') { handleAuthFailure(); return; }
       status.dataset.tone = 'error';
-      status.textContent = "Couldn't save — try again.";
+      if (result.code === 'forbidden') {
+        // The UI should already have this disabled (read-only role) — this is
+        // the backend's own enforcement catching it regardless. Re-sync
+        // instead of assuming it's safe to let them try again.
+        status.textContent = "You don't have permission to make changes.";
+        applyWriteAccessUI();
+      } else {
+        status.textContent = "Couldn't save — try again.";
+        saveBtn.disabled = false;
+      }
       return;
     }
 
+    saveBtn.disabled = false;
     status.dataset.tone = '';
     status.textContent = 'Saved.';
     await refreshData();
@@ -571,8 +622,10 @@ function logout() {
   tokenClaims = null;
   allEntries = [];
   entryDates.clear();
+  currentUserRole = null;
   document.getElementById('avatar').textContent = '';
   document.getElementById('account-email').textContent = '';
+  applyWriteAccessUI();
   if (window.google && google.accounts) google.accounts.id.disableAutoSelect();
   showScreen('login');
 }

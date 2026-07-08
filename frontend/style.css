@@ -104,6 +104,23 @@ body {
   min-width: 0;
 }
 
+.role-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  flex: none;
+  white-space: nowrap;
+}
+
+.role-badge[data-role="read"] {
+  color: var(--warning);
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+}
+
 .logout-btn {
   flex: none;
   font: inherit;

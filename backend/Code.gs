@@ -2,7 +2,12 @@
 //
 // REPLACE BEFORE DEPLOYING — do not commit real values here:
 var CLIENT_ID = 'REPLACE_WITH_YOUR_OAUTH_CLIENT_ID.apps.googleusercontent.com';
-var ALLOWED_EMAILS = ['REPLACE_WITH_YOUR_EMAIL@example.com'];
+
+// email -> 'admin' (read + write) or 'read' (list only; add/update/delete rejected).
+var ALLOWED_USERS = {
+  'REPLACE_WITH_YOUR_ADMIN_EMAIL@example.com': 'admin'
+  // 'someone-read-only@example.com': 'read'
+};
 
 var SHEET_NAME = 'Weights';
 var DATE_COL = 1;   // A
@@ -11,15 +16,16 @@ var UPDATED_COL = 3; // C
 var HEADER_ROWS = 1;
 
 function doGet(e) {
+  var role;
   try {
-    requireAuth_(e.parameter.token);
+    role = requireAuth_(e.parameter.token);
   } catch (err) {
     return authErrorResponse_(err.message);
   }
   try {
     var action = e.parameter.action;
     if (action === 'list') {
-      return listEntries_();
+      return listEntries_(role);
     }
     return errorResponse_('Unknown or missing action');
   } catch (err) {
@@ -34,13 +40,21 @@ function doPost(e) {
   } catch (err) {
     return errorResponse_('Malformed request body');
   }
+
+  var role;
   try {
-    requireAuth_(body.token);
+    role = requireAuth_(body.token);
   } catch (err) {
     return authErrorResponse_(err.message);
   }
+
+  var action = body.action;
+  var isWriteAction = (action === 'add' || action === 'update' || action === 'delete');
+  if (isWriteAction && role !== 'admin') {
+    return forbiddenErrorResponse_("You have read-only access and can't make changes.");
+  }
+
   try {
-    var action = body.action;
     if (action === 'add' || action === 'update') {
       return upsertEntry_(body.date, body.weight);
     }
@@ -53,11 +67,15 @@ function doPost(e) {
   }
 }
 
+// Returns the caller's role ('admin' | 'read') or throws if the token is
+// invalid or the email isn't on the allowlist at all.
 function requireAuth_(token) {
   var email = verifyToken_(token);
-  if (!isAllowed_(email)) {
+  var role = ALLOWED_USERS[email];
+  if (!role) {
     throw new Error('Not authorized');
   }
+  return role;
 }
 
 function verifyToken_(token) {
@@ -93,10 +111,6 @@ function verifyToken_(token) {
   return payload.email;
 }
 
-function isAllowed_(email) {
-  return ALLOWED_EMAILS.indexOf(email) !== -1;
-}
-
 // Cheap, local, no-network check that a string is plausibly a JWT
 // (three base64url segments within a sane length) before we spend a
 // UrlFetchApp call verifying it against Google. Layering this in front
@@ -112,7 +126,7 @@ function looksLikeJwt_(token) {
     JWT_SHAPE_RE.test(token);
 }
 
-function listEntries_() {
+function listEntries_(role) {
   var sheet = getSheet_();
   var lastRow = sheet.getLastRow();
   var entries = [];
@@ -129,7 +143,7 @@ function listEntries_() {
     }
   }
   entries.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
-  return jsonResponse_({ ok: true, data: entries });
+  return jsonResponse_({ ok: true, data: entries, role: role });
 }
 
 function upsertEntry_(dateStr, weight) {
@@ -230,4 +244,11 @@ function errorResponse_(message) {
 
 function authErrorResponse_(message) {
   return jsonResponse_({ ok: false, error: message, code: 'auth' });
+}
+
+// Distinct from authErrorResponse_: the caller IS authenticated, just not
+// permitted to do this specific thing (read-only role hitting a write
+// action). The frontend must not treat this as a session failure.
+function forbiddenErrorResponse_(message) {
+  return jsonResponse_({ ok: false, error: message, code: 'forbidden' });
 }

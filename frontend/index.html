@@ -37,6 +37,7 @@
   <header class="app-header">
     <h1>Weight Tracker</h1>
     <div class="account-area">
+      <span id="role-badge" class="role-badge" hidden></span>
       <div class="avatar" id="avatar"></div>
       <span class="account-email" id="account-email"></span>
       <button id="logout-btn" class="logout-btn" type="button">Log out</button>
@@ -75,6 +76,7 @@
       </form>
       <p id="form-status" role="status" aria-live="polite"></p>
       <p id="offline-field-note" class="field-note" hidden>Reconnect to add or edit entries.</p>
+      <p id="readonly-field-note" class="field-note" hidden>You have read-only access.</p>
     </section>
 
     <section class="card" aria-labelledby="chart-heading">

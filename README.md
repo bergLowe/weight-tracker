@@ -236,6 +236,39 @@ Phase 5 confirmed working ✅ (2026-07-08).
 - Fixed a latent bug the Refresh button would have hit constantly: `apiGet`/`apiPost` didn't catch `fetch` itself throwing (offline, DNS failure, connection reset — as opposed to a normal `{ok:false}` response). That left whichever button triggered the call — Save, a row's delete, and now Refresh — stuck `disabled` forever with no feedback. Both now catch that and return the same `{ok:false, error}` shape every caller already handles, so the button re-enables and shows an inline message instead of hanging.
 - Delete now shows in-progress feedback: confirming shows "Deleting…" (next to the History heading, same spot Refresh uses), disables every row's edit/delete buttons plus the Refresh button so you can't fire an overlapping request, then "Deleted — refreshing…" while the table/chart/calendar re-sync, clearing once that finishes (or showing its own error if the refresh itself fails). `#refresh-status` now supports a neutral in-progress tone as well as the existing error tone.
 
+## Roles: Admin (read + write) vs Read (view only)
+
+**Breaking change to your deployed backend config.** `ALLOWED_EMAILS` (an array) is now `ALLOWED_USERS` (an email → role map):
+```js
+var ALLOWED_USERS = {
+  'REPLACE_WITH_YOUR_ADMIN_EMAIL@example.com': 'admin'
+  // 'someone-read-only@example.com': 'read'
+};
+```
+Paste the updated `Code.gs` into the Apps Script editor, set your own email to `'admin'`, add anyone else's as `'read'`, redeploy (Manage deployments → edit → new version).
+
+**Backend enforcement (the real boundary):** `requireAuth_` now returns the caller's role instead of just pass/fail. `list` only needs any valid role; `add`/`update`/`delete` additionally require `role === 'admin'` — checked in `doPost` before the action runs. A read-only email hitting a write action gets:
+```json
+{ "ok": false, "error": "You have read-only access and can't make changes.", "code": "forbidden" }
+```
+This is a new, third response category alongside plain errors and `code:"auth"` — deliberately distinct, since a read-only user is correctly authenticated and must **not** be logged out over it (only `code:"auth"` triggers that). `list`'s response also now includes the caller's role: `{ ok: true, data: [...], role: "admin" }`, piggybacked on the call that already verifies the token — no extra round trip.
+
+**Frontend:** the role arrives with the first `list` response and drives:
+- A badge next to the title — "Admin" or "Read" (amber-tinted for read-only), so it's visible at a glance which mode you're in.
+- The entry form (date, weight, Save) and every row's edit/delete buttons render disabled for a read-only user, same `:disabled` styling already used for offline, plus a "You have read-only access" note. This combines with the existing offline-disabling logic — either condition disables the controls, and each has its own independent note (both can show together).
+- If a write request somehow gets through anyway (defense in depth — the backend check is what actually matters), the response comes back `code:"forbidden"`: shown as an inline message, and the UI re-syncs back to disabled. Explicitly **not** treated as a session failure — only `code:"auth"` logs you out.
+- Refresh (view-only) is never blocked by role — a read-only user can still see the latest data, just not change it.
+
+### Test steps
+
+1. Update and redeploy `Code.gs` per the migration above.
+2. Signed in as admin (your email): everything behaves exactly as before — badge reads "Admin", nothing is disabled.
+3. Add a second email as `'read'` in `ALLOWED_USERS` and redeploy. Sign in as that account (a second Google account, or temporarily flip your own email to `'read'` for one test pass and flip it back after):
+   - Badge reads "Read", entry form and every row's edit/delete buttons are disabled with the read-only note visible.
+   - Refresh still works and shows current data.
+   - In the console, confirm the backend itself rejects a bypassed write attempt without logging you out: `await apiPost('add', {date:'2026-01-01', weight:70})` → `{"ok":false,"error":"...","code":"forbidden"}`, and you're still on the app screen, still signed in.
+4. curl, with a read-role token: `list` succeeds and includes `"role":"read"`; `add`/`update`/`delete` all return the `code:"forbidden"` shape above, Sheet untouched.
+
 Once this checks out, we'll move to Phase 6 (PWA: manifest, service worker, offline install/caching).
 
 ## Deploying to GitHub Pages (`.github/workflows/deploy.yml`)
