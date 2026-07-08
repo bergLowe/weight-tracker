@@ -106,6 +106,8 @@ curl "URL?action=list"
 
 # 2. Garbage/expired token — should be rejected
 curl "URL?action=list&token=not-a-real-token"
+# rejected for free — fails the local JWT-shape check (no dots), never
+# reaches Google's tokeninfo endpoint
 
 # 3. Valid token, correct email — should succeed
 curl "URL?action=list&token=TOKEN"
@@ -117,9 +119,36 @@ curl -L -X POST "URL" -H "Content-Type: application/json" \
 For the "wrong email" case: temporarily set `ALLOWED_EMAILS` to `['someone-else@example.com']`, redeploy, retry request 3 above (should now be rejected), then set it back to your real email and redeploy again.
 
 **What to check:**
-- Case 1 & 2 → `{"ok":false,"error":"..."}` (`Missing token` / `Invalid token`), Sheet untouched.
+- Case 1 & 2 → `{"ok":false,"error":"Missing or malformed token"}`, Sheet untouched.
 - Wrong-email case → `{"ok":false,"error":"Not authorized"}`, Sheet untouched.
 - Case 3 (valid token, correct email) → succeeds exactly like Phase 1.
 - Token more than ~1 hour old (GIS ID tokens expire in ~1hr) → `{"ok":false,"error":"Token expired"}`.
+- A well-formed-but-fake token (three base64url-looking segments, e.g. `abc.def.ghi`) → passes the local shape check, then gets rejected by the real tokeninfo call → `{"ok":false,"error":"Invalid token"}`.
+
+### Defense-in-depth: cheap checks before the expensive call
+
+`verifyToken_` validates the token's shape locally (non-empty, under 4096 chars, three base64url segments separated by dots — the structural shape of a JWT) *before* calling `UrlFetchApp.fetch` against Google's `tokeninfo` endpoint. Garbage input (empty, wrong type, no dots, absurdly long) is rejected for free without ever making the network call. This matters both for cost/quota (Apps Script's `UrlFetchApp` has a daily call quota shared across the whole script) and as a shallow defense layer: cheap local checks (format, presence, size) go first, and only input that survives all of them reaches the expensive, authoritative check. No single layer is meant to be sufficient on its own — the shape check doesn't verify anything cryptographically, it just filters out obviously-invalid input cheaply so the real verification isn't wasted on noise.
 
 Once all of the above checks out, we'll move to Phase 3 (frontend shell).
+
+## Troubleshooting
+
+### `You do not have permission to call UrlFetchApp.fetch. Required permissions: .../auth/script.external_request`
+
+Happens after adding the Phase 2 auth code, when the Apps Script project's authorized scopes are stale (e.g. it was originally authorized back in Phase 1, before any code called `UrlFetchApp`). Redeploying alone does not always trigger Google to re-prompt for the new scope, and running a function manually can silently "complete" without showing the authorization dialog if the grant looks up-to-date to Apps Script even though it isn't.
+
+**Fix — revoke and re-authorize:**
+1. Go to `myaccount.google.com/permissions` (Google Account → Security → "Third-party apps & services").
+2. Find the Apps Script project (e.g. **weight-tracker**) and remove/revoke its access.
+3. Back in the Apps Script editor, select `doGet` from the function dropdown and click **Run**.
+4. This time it should show **Authorization required** → **Review permissions** → your account → **Advanced** → **Go to weight-tracker (unsafe)** → **Allow**. If nothing appears, check the browser address bar for a blocked-popup icon.
+5. Retry the request.
+
+**If that still doesn't prompt:** the project's scopes may be manually pinned. Gear icon → **Project Settings** → enable **"Show 'appsscript.json' manifest file in editor"**. Open `appsscript.json` — if it has an `oauthScopes` array, Apps Script has stopped auto-detecting scopes for this project; add the missing scope by hand:
+```json
+"oauthScopes": [
+  "https://www.googleapis.com/auth/spreadsheets",
+  "https://www.googleapis.com/auth/script.external_request"
+]
+```
+Save, then repeat the revoke-and-run steps above.

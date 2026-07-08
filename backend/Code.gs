@@ -48,8 +48,10 @@ function requireAuth_(token) {
 }
 
 function verifyToken_(token) {
-  if (!token || typeof token !== 'string') {
-    throw new Error('Missing token');
+  // Cheap local checks first (presence, size, shape) — reject garbage
+  // before spending a UrlFetchApp call on it.
+  if (!looksLikeJwt_(token)) {
+    throw new Error('Missing or malformed token');
   }
 
   var response = UrlFetchApp.fetch(
@@ -80,6 +82,21 @@ function verifyToken_(token) {
 
 function isAllowed_(email) {
   return ALLOWED_EMAILS.indexOf(email) !== -1;
+}
+
+// Cheap, local, no-network check that a string is plausibly a JWT
+// (three base64url segments within a sane length) before we spend a
+// UrlFetchApp call verifying it against Google. Layering this in front
+// of the expensive check means malformed/garbage input never reaches
+// tokeninfo at all.
+var JWT_SHAPE_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+var MAX_TOKEN_LENGTH = 4096;
+
+function looksLikeJwt_(token) {
+  return typeof token === 'string' &&
+    token.length > 0 &&
+    token.length <= MAX_TOKEN_LENGTH &&
+    JWT_SHAPE_RE.test(token);
 }
 
 function listEntries_() {
