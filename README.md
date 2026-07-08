@@ -133,7 +133,25 @@ Phase 2 confirmed working ✅ (2026-07-08).
 
 ## Phase 3 — Frontend shell (no auth, no backend calls)
 
-`frontend/index.html` + `frontend/style.css` + `frontend/app.js`: date picker, weight input form, an empty Chart.js line chart, and a history table (empty state: "No entries yet"). The "Sign in with Google" button is present but disabled/non-functional — wired up in Phase 4. Submitting the form doesn't save anything yet; it just shows "Shell only — saving isn't wired up yet (Phase 5)." No `config.js`, no service worker, no manifest yet — those come in later phases.
+`frontend/index.html` + `frontend/style.css` + `frontend/app.js` now implement every screen in the online/offline flow (see the design artifacts shared earlier) as real, working UI — still with no auth and no backend calls (that's Phase 4/5). All three screens exist in the DOM simultaneously and are switched with `hidden`:
+
+- **Login screen** (`#screen-login`) — Google sign-in button (inert for now) + an offline-banner variant.
+- **Attempting silent sign-in** (`#screen-silent`) — spinner-only loading state.
+- **Main app** (`#screen-app`) — entry form with a custom calendar date picker, an interactive Chart.js trend chart (gridlines, 7D/30D/90D/All range filter, hover crosshair + tooltip), and the history table. Offline banner, disabled form/table controls, and the "Reconnect to add or edit entries" note are all built, just not yet wired to a real connectivity signal.
+
+Since there's no auth yet, screens are switched manually for now via two console helpers (temporary — Phase 4 will drive this for real):
+```js
+showScreen('login' | 'silent' | 'app')
+setOffline(true | false)   // toggles both offline banners + disables form/table controls
+```
+
+**Calendar**: click the date field to open a real month-grid picker — today is ringed, the selected day is filled, days you've already logged would show a small dot (via an `entryDates` Set, empty until Phase 5 populates it from real data), future dates are disabled, and prev/next-month days are clickable to navigate. All computed live from the real date, not hardcoded.
+
+**Chart**: still shows no data (empty axes) until Phase 5, but the chrome is fully built — y-axis gridlines, x-axis labels, range-filter pills (functional now, just filtering an empty array), and a hover tooltip + dashed crosshair line, styled to match the app.
+
+Two implementation notes, in case you spot either while poking at the console:
+- The chart is built **lazily**, the first time `showScreen('app')` runs — Chart.js lays out against the canvas's rendered size, and building it while hidden behind another screen (`display:none`) gave it a broken layout that didn't self-correct later.
+- Chart **animation is disabled**. Animating the axis scale itself (0 categories → N, e.g. on first load or an empty→populated range-filter change) left point pixel positions transiently desynced from `chartArea` in a way a reasonable wait didn't resolve — it broke hover hit-testing. Not worth chasing for a dataset this small.
 
 ### Run it locally
 
@@ -144,12 +162,12 @@ python3 -m http.server 8000
 Open `http://localhost:8000` in a browser.
 
 **What to check:**
-- Page loads with no console errors (Chart.js loads from CDN — needs internet access).
-- Date field defaults to today's date.
-- Layout is usable and uncramped at both a phone width (~390px) and a desktop width — resize the window or use devtools' device toolbar.
-- Typing a weight and clicking Save shows the "Shell only..." status message, and nothing is sent over the network (check the Network tab — no requests to the Apps Script URL).
-- Chart area renders as an empty axis grid (no data yet — that's expected).
-- Toggle your OS/browser dark mode and confirm the page follows it (colors invert, nothing becomes illegible).
+- Page loads with no console errors (Chart.js loads from CDN — needs internet access). Default screen is the login screen.
+- `setOffline(true)` in the console shows the offline banner on both the login screen and (after `showScreen('app')`) the main app, and disables the date field, weight input, Save button, and every row's edit/delete buttons. `setOffline(false)` reverses all of it.
+- `showScreen('app')`: click the date field — a calendar opens with today ringed/selected, future dates greyed out and unclickable, and prev/next-month navigation working. Pick a past day and confirm the trigger label updates and the calendar closes.
+- In the console: `const c = Chart.getChart('weight-chart'); c.data.labels = ['2026-06-01','2026-07-08']; c.data.datasets[0].data = [88, 90.5]; c.update();` then hover the chart — a dashed crosshair and a tooltip (date + kg, bold) should track the nearest point.
+- Layout is usable and uncramped at both a phone width (~390px) and a desktop width.
+- Toggle your OS/browser dark mode and confirm every screen follows it — including the calendar and chart.
 
 Once this looks right, we'll move to Phase 4 (wiring in Google Sign-In).
 
