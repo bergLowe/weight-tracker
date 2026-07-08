@@ -175,11 +175,10 @@ Phase 3 confirmed working ✅ (2026-07-08).
 
 Real GIS sign-in, still with **no backend calls** — the token is obtained and decoded client-side only, never sent anywhere yet (that's Phase 5).
 
-**Before testing**, edit `frontend/config.js` (created this phase) with your real Client ID — do not commit the real value:
-```js
-const CONFIG = {
-  CLIENT_ID: 'REPLACE_WITH_YOUR_OAUTH_CLIENT_ID.apps.googleusercontent.com'
-};
+**Before testing**, copy `frontend/config.example.js` to `frontend/config.js` (gitignored — never committed, not even as a placeholder) and fill in your real Client ID:
+```bash
+cp frontend/config.example.js frontend/config.js
+# then edit config.js with your real Client ID
 ```
 
 **What changed:**
@@ -201,6 +200,19 @@ const CONFIG = {
 8. Reconnect — the offline banner should clear on its own without reloading.
 
 Once this checks out, we'll move to Phase 5 (wiring the frontend to the real backend — add/list/update/delete, and removing the temporary console logging of the token).
+
+## Deploying to GitHub Pages (`.github/workflows/deploy.yml`)
+
+Set up ahead of Phase 7, since the Client ID handling needed deciding now rather than retrofitting later.
+
+GitHub Pages serves static files straight from the repo — there's no server-side templating, so `frontend/config.js` (gitignored, holds the real Client ID) has to be generated at deploy time instead of committed. The workflow does that: on every push to `main`, it builds `frontend/config.js` from `frontend/config.example.js` with the real Client ID substituted in from a GitHub Actions secret, then publishes `frontend/` via GitHub's official Pages actions. The Client ID never appears in git history on any branch.
+
+**One-time setup (do this before the workflow will succeed):**
+1. Repo → **Settings → Pages → Build and deployment → Source** → set to **GitHub Actions** (not "Deploy from a branch").
+2. Repo → **Settings → Secrets and variables → Actions → New repository secret** → name it `OAUTH_CLIENT_ID`, value = your real Client ID (the full string, e.g. `xxxxx.apps.googleusercontent.com`).
+3. Make sure your OAuth Client's **Authorized JavaScript origins** (Google Cloud Console) includes your GitHub Pages URL once you know it (`https://<username>.github.io` or your custom domain).
+
+The workflow only triggers on pushes to `main` (or manually via the **Run workflow** button in the Actions tab) — it won't run yet since this branch's work lands there via PR. Once merged, every push to `main` redeploys automatically.
 
 ## Troubleshooting
 
