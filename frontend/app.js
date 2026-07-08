@@ -346,15 +346,25 @@ function handleAuthFailure() {
   showLoginError('Your session ended, please sign in again.');
 }
 
+function setRefreshStatus(message, tone) {
+  const el = document.getElementById('refresh-status');
+  el.textContent = message;
+  el.dataset.tone = tone || '';
+}
+
+function setHistoryControlsDisabled(disabled) {
+  document.getElementById('refresh-btn').disabled = disabled;
+  document.querySelectorAll('.icon-btn').forEach((b) => { b.disabled = disabled; });
+}
+
 async function refreshData() {
-  const statusEl = document.getElementById('refresh-status');
   const result = await apiGet('list');
   if (!result.ok) {
     if (result.code === 'auth') { handleAuthFailure(); return false; }
-    if (statusEl) statusEl.textContent = "Couldn't refresh — try again.";
+    setRefreshStatus("Couldn't refresh — try again.", 'error');
     return false;
   }
-  if (statusEl) statusEl.textContent = '';
+  setRefreshStatus('', '');
   allEntries = result.data;
   entryDates.clear();
   allEntries.forEach((e) => entryDates.add(e.date));
@@ -444,13 +454,21 @@ function startEdit(entry) {
 
 async function handleDelete(entry) {
   if (!confirm(`Delete the entry for ${formatTableDate(entry.date)}?`)) return;
+
+  setHistoryControlsDisabled(true);
+  setRefreshStatus('Deleting…', '');
+
   const result = await apiPost('delete', { date: entry.date });
   if (!result.ok) {
     if (result.code === 'auth') { handleAuthFailure(); return; }
-    alert("Couldn't delete — try again.");
+    setRefreshStatus("Couldn't delete — try again.", 'error');
+    setHistoryControlsDisabled(false);
     return;
   }
-  await refreshData();
+
+  setRefreshStatus('Deleted — refreshing…', '');
+  await refreshData(); // clears the status on success, or shows its own error
+  setHistoryControlsDisabled(false);
 }
 
 // ================= Form =================

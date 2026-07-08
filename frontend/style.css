@@ -290,6 +290,10 @@ main {
   min-height: 1.1em;
   margin: -6px 0 8px;
   font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+#refresh-status[data-tone="error"] {
   color: var(--danger);
 }
 
